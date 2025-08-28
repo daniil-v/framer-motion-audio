@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
+import { isModeEnabled } from './config';
 
 /**
  * Framer Motion Equalizer for a live audio stream (mic or <audio> element)
@@ -40,6 +41,7 @@ type EqualizerProps = {
   width?: number;
   colorClass?: string;
   bgClass?: string;
+  micStarted?: boolean; // For mic mode, indicates if user has clicked start
 };
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
@@ -54,6 +56,7 @@ export default function Equalizer({
   width = 480,
   colorClass = 'bg-indigo-500',
   bgClass = 'bg-zinc-900',
+  micStarted = false,
 }: EqualizerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -84,6 +87,18 @@ export default function Equalizer({
   }, [bars, fftSize]);
 
   useEffect(() => {
+    // Early return if mode is disabled
+    if (!isModeEnabled(mode)) {
+      setBarHeights(Array(bars).fill(8));
+      return;
+    }
+
+    // For mic mode, wait until user has clicked start
+    if (mode === 'mic' && !micStarted) {
+      setBarHeights(Array(bars).fill(8));
+      return;
+    }
+
     let cancelled = false;
     let isSetup = false;
     let cleanupAudio: (() => void) | undefined;
@@ -204,8 +219,8 @@ export default function Equalizer({
         audioEl.removeEventListener('pause', handlePause);
         audioEl.removeEventListener('ended', handleEnded);
       };
-    } else if (mode === 'mic') {
-      // For mic mode, setup immediately (getUserMedia is a user gesture)
+    } else if (mode === 'mic' && micStarted) {
+      // For mic mode, setup only after user has clicked start (getUserMedia requires user gesture)
       setupAudioContext();
     }
 
@@ -217,21 +232,25 @@ export default function Equalizer({
       analyserRef.current?.disconnect();
       cleanupAudio?.();
     };
-  }, [mode, audioEl, bars, fftSize, smoothing, height, binMap]);
+  }, [mode, audioEl, bars, fftSize, smoothing, height, binMap, micStarted]);
 
   const gap = 4; // px gap between bars
   const barWidth = Math.floor((width - gap * (bars - 1)) / bars);
 
+  const isDisabled = !isModeEnabled(mode);
+
   return (
     <div
-      className={`w-full flex flex-col items-center ${bgClass} rounded-2xl p-4`}
+      className={`w-full flex flex-col items-center ${bgClass} rounded-2xl p-4 ${
+        isDisabled ? 'opacity-50' : ''
+      }`}
       style={{ width }}
     >
       <div className="w-full flex items-end" style={{ height, gap }} ref={containerRef}>
         {barHeights.map((h, i) => (
           <motion.div
             key={i}
-            className={`${colorClass} rounded-t-xl`}
+            className={`${colorClass} rounded-t-xl ${isDisabled ? 'bg-zinc-600' : ''}`}
             style={{
               width: barWidth,
               transformOrigin: 'bottom',
@@ -243,7 +262,13 @@ export default function Equalizer({
         ))}
       </div>
       <div className="flex items-center justify-between text-xs text-zinc-400 w-full mt-2">
-        <span>{mode === 'mic' ? 'Mic live' : 'Audio element'}</span>
+        <span>
+          {isDisabled
+            ? `${mode === 'mic' ? 'Mic' : 'Audio element'} (disabled)`
+            : mode === 'mic'
+              ? 'Mic live'
+              : 'Audio element'}
+        </span>
         <span>
           {bars} bars · fft {fftSize}
         </span>
