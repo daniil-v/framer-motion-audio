@@ -122,7 +122,7 @@ export default function VoiceRipples({
     // Set initial dimensions immediately
     setDimensions({
       width: width || 320,
-      height: height || (window.innerWidth < 640 ? window.innerHeight * 0.8 : 200),
+      height: height || (window.innerWidth < 640 ? window.innerHeight * 0.7 : 200),
     });
 
     // Use setTimeout to ensure container is rendered before measuring
