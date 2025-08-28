@@ -235,18 +235,24 @@ export default function Equalizer({
   }, [mode, audioEl, bars, fftSize, smoothing, height, binMap, micStarted]);
 
   const gap = 4; // px gap between bars
-  const barWidth = Math.floor((width - gap * (bars - 1)) / bars);
+  const containerWidth = width - 32; // Account for padding
+  const containerHeight = height - 64; // Account for padding + bottom info text
+  const barWidth = Math.floor((containerWidth - gap * (bars - 1)) / bars);
 
   const isDisabled = !isModeEnabled(mode);
 
   return (
     <div
-      className={`w-full flex flex-col items-center ${bgClass} rounded-2xl p-4 ${
+      className={`flex flex-col items-center ${bgClass} rounded-2xl p-4 ${
         isDisabled ? 'opacity-50' : ''
       }`}
-      style={{ width }}
+      style={{ width, height }}
     >
-      <div className="w-full flex items-end" style={{ height, gap }} ref={containerRef}>
+      <div
+        className="flex items-end"
+        style={{ width: containerWidth, height: containerHeight, gap }}
+        ref={containerRef}
+      >
         {barHeights.map((h, i) => (
           <motion.div
             key={i}
@@ -261,7 +267,10 @@ export default function Equalizer({
           />
         ))}
       </div>
-      <div className="flex items-center justify-between text-xs text-zinc-400 w-full mt-2">
+      <div
+        className="flex items-center justify-between text-xs text-zinc-400 mt-3"
+        style={{ width: containerWidth }}
+      >
         <span>
           {isDisabled
             ? `${mode === 'mic' ? 'Mic' : 'Audio element'} (disabled)`
