@@ -7,11 +7,11 @@ export default function App() {
   const [mode, setMode] = useState<Mode>('element');
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  useMemo(() => {
-    if (mode === 'element' && audioRef.current) {
-      audioRef.current.play().catch(() => {});
-    }
-  }, [mode]);
+  // useMemo(() => {
+  //   if (mode === 'element' && audioRef.current) {
+  //     audioRef.current.play().catch(() => {});
+  //   }
+  // }, [mode]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50 flex items-center justify-center p-6">

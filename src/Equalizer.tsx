@@ -62,7 +62,7 @@ export default function Equalizer({
   const srcRef = useRef<MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null>(null);
 
   // Use state to track bar heights and avoid hook violations
-  const [barHeights, setBarHeights] = useState<number[]>(() => Array(bars).fill(0));
+  const [barHeights, setBarHeights] = useState<number[]>(() => Array(bars).fill(8));
 
   // Compute index ranges to aggregate FFT bins into N bars (log-scale-ish)
   const binMap = useMemo(() => {
@@ -85,76 +85,129 @@ export default function Equalizer({
 
   useEffect(() => {
     let cancelled = false;
+    let isSetup = false;
+    let cleanupAudio: (() => void) | undefined;
 
-    async function setup() {
-      // Create/reuse AudioContext
-      const ctx =
-        ctxRef.current ??
-        new (window.AudioContext ||
-          (window as typeof window & { webkitAudioContext: typeof AudioContext })
-            .webkitAudioContext)();
-      ctxRef.current = ctx;
+    async function setupAudioContext() {
+      if (isSetup || cancelled) return;
 
-      // Create analyser
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = fftSize; // 2^n, 32..32768
-      analyser.smoothingTimeConstant = smoothing;
-      analyserRef.current = analyser;
+      try {
+        // Create/reuse AudioContext only after user gesture
+        const ctx =
+          ctxRef.current ??
+          new (window.AudioContext ||
+            (window as typeof window & { webkitAudioContext: typeof AudioContext })
+              .webkitAudioContext)();
+        ctxRef.current = ctx;
 
-      // Connect source
-      let source: MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null = null;
-
-      if (mode === 'element') {
-        if (!audioEl) return;
-        // If element is not playing yet, resume context on user gesture is needed in some browsers
-        source = ctx.createMediaElementSource(audioEl);
-        source.connect(analyser);
-        analyser.connect(ctx.destination); // to hear audio
-      } else {
-        // mic
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        source = ctx.createMediaStreamSource(stream);
-        source.connect(analyser);
-        // Do not connect analyser to destination to avoid feedback
-      }
-
-      srcRef.current = source;
-
-      const buffer = new Uint8Array(analyser.frequencyBinCount);
-      const loop = () => {
-        console.log('---> loop', buffer);
-        if (cancelled) return;
-        analyser.getByteFrequencyData(buffer); // 0..255
-
-        // Array to store new heights for this frame
-        const newHeights: number[] = [];
-
-        // Aggregate bins into bars
-        for (let i = 0; i < bars; i++) {
-          const { start, end } = binMap[i];
-          let sum = 0;
-          let count = 0;
-          for (let j = start; j < end; j++) {
-            sum += buffer[j];
-            count++;
-          }
-          const avg = count ? sum / count : 0;
-          const norm = avg / 255; // 0..1
-          const barPx = norm * height; // scale to container height
-          // Store the values to update state
-          newHeights[i] = barPx;
+        // Resume context if suspended (required for user interaction)
+        if (ctx.state === 'suspended') {
+          await ctx.resume();
         }
 
-        // Update state with new heights
-        setBarHeights(newHeights);
+        // Create analyser
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = fftSize; // 2^n, 32..32768
+        analyser.smoothingTimeConstant = smoothing;
+        analyserRef.current = analyser;
+
+        // Connect source
+        let source: MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null = null;
+
+        if (mode === 'element') {
+          if (!audioEl) return;
+
+          // Check if we already have a source for this element
+          if (srcRef.current) {
+            srcRef.current.disconnect();
+          }
+
+          source = ctx.createMediaElementSource(audioEl);
+          source.connect(analyser);
+          analyser.connect(ctx.destination); // to hear audio
+        } else {
+          // mic - this is a user gesture by definition (getUserMedia)
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          source = ctx.createMediaStreamSource(stream);
+          source.connect(analyser);
+          // Do not connect analyser to destination to avoid feedback
+        }
+
+        srcRef.current = source;
+        isSetup = true;
+
+        const buffer = new Uint8Array(analyser.frequencyBinCount);
+        const loop = () => {
+          if (cancelled) return;
+
+          // Only analyze if audio context is running and (for element mode) audio is playing
+          if (ctx.state !== 'running' || (mode === 'element' && audioEl && audioEl.paused)) {
+            // Set bars to minimal height when not playing
+            setBarHeights(Array(bars).fill(8));
+            rafRef.current = requestAnimationFrame(loop);
+            return;
+          }
+
+          analyser.getByteFrequencyData(buffer); // 0..255
+
+          // Array to store new heights for this frame
+          const newHeights: number[] = [];
+
+          // Aggregate bins into bars
+          for (let i = 0; i < bars; i++) {
+            const { start, end } = binMap[i];
+            let sum = 0;
+            let count = 0;
+            for (let j = start; j < end; j++) {
+              sum += buffer[j];
+              count++;
+            }
+            const avg = count ? sum / count : 0;
+            const norm = avg / 255; // 0..1
+            const barPx = Math.max(8, norm * height); // minimum 8px height
+            // Store the values to update state
+            newHeights[i] = barPx;
+          }
+
+          // Update state with new heights
+          setBarHeights(newHeights);
+
+          rafRef.current = requestAnimationFrame(loop);
+        };
 
         rafRef.current = requestAnimationFrame(loop);
-      };
-
-      rafRef.current = requestAnimationFrame(loop);
+      } catch (error) {
+        console.error('Error setting up equalizer:', error);
+      }
     }
 
-    setup();
+    // For element mode, wait for user interaction (play event)
+    if (mode === 'element' && audioEl) {
+      const handlePlay = async () => {
+        await setupAudioContext();
+      };
+
+      const handlePause = () => {
+        setBarHeights(Array(bars).fill(8));
+      };
+
+      const handleEnded = () => {
+        setBarHeights(Array(bars).fill(8));
+      };
+
+      audioEl.addEventListener('play', handlePlay);
+      audioEl.addEventListener('pause', handlePause);
+      audioEl.addEventListener('ended', handleEnded);
+
+      cleanupAudio = () => {
+        audioEl.removeEventListener('play', handlePlay);
+        audioEl.removeEventListener('pause', handlePause);
+        audioEl.removeEventListener('ended', handleEnded);
+      };
+    } else if (mode === 'mic') {
+      // For mic mode, setup immediately (getUserMedia is a user gesture)
+      setupAudioContext();
+    }
 
     return () => {
       cancelled = true;
@@ -162,13 +215,12 @@ export default function Equalizer({
       // Disconnect nodes but keep AudioContext for reuse
       srcRef.current?.disconnect();
       analyserRef.current?.disconnect();
+      cleanupAudio?.();
     };
   }, [mode, audioEl, bars, fftSize, smoothing, height, binMap]);
 
   const gap = 4; // px gap between bars
   const barWidth = Math.floor((width - gap * (bars - 1)) / bars);
-
-  // console.log('---> barHeights', barHeights);
 
   return (
     <div
@@ -185,7 +237,7 @@ export default function Equalizer({
               transformOrigin: 'bottom',
             }}
             animate={{ height: h }}
-            initial={{ height: 22 }}
+            initial={{ height: 8 }}
             transition={{ type: 'spring', stiffness: 200, damping: 20 }}
           />
         ))}
