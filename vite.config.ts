@@ -7,4 +7,20 @@ export default defineConfig({
     port: 5173,
     open: true,
   },
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          animations: ['framer-motion'],
+        },
+      },
+    },
+  },
+  preview: {
+    port: 4173,
+  },
 });
