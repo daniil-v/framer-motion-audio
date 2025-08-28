@@ -34,6 +34,7 @@ export type VoiceRipplesProps = {
   bgClass?: string; // Tailwind class for background (override preset)
   theme?: ThemeName; // preset name
   micStarted?: boolean; // For mic mode, indicates if user has clicked start
+  className?: string; // For responsive styling
 };
 
 // --- Theme presets ---
@@ -79,8 +80,8 @@ const THEMES: Record<ThemeName, { color: string; bgClass: string; ringWidth: num
 export default function VoiceRipples({
   mode = 'mic',
   audioEl = null,
-  width = 480,
-  height = 320,
+  width,
+  height,
   sensitivity = 0.18,
   fftSize = 1024,
   smoothing = 0.8,
@@ -92,6 +93,7 @@ export default function VoiceRipples({
   color, // cyan-400
   bgClass,
   micStarted = false,
+  className = '',
 }: VoiceRipplesProps) {
   const ctxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -99,10 +101,44 @@ export default function VoiceRipples({
   const rafRef = useRef<number | null>(null);
   const lastSpawnRef = useRef<number>(0);
   const prevLevelRef = useRef<number>(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  // Update dimensions when container size changes
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const newWidth = width || Math.max(320, rect.width); // Minimum 320px width
+        // On mobile (small screens), use full available height, on desktop maintain aspect ratio
+        const isMobile = window.innerWidth < 640; // sm breakpoint
+        const newHeight =
+          height ||
+          Math.max(200, isMobile ? rect.height : Math.min(360, Math.max(200, rect.width * 0.5625)));
+        setDimensions({ width: newWidth, height: newHeight });
+      }
+    };
+
+    // Set initial dimensions immediately
+    setDimensions({
+      width: width || 320,
+      height: height || (window.innerWidth < 640 ? window.innerHeight * 0.8 : 200),
+    });
+
+    // Use setTimeout to ensure container is rendered before measuring
+    setTimeout(updateDimensions, 0);
+
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, [width, height]);
 
   // Calculate dimensions first (account for padding)
-  const innerWidth = width - 32; // Account for p-4 padding (16px * 2)
-  const innerHeight = height - 64; // Account for padding + bottom info text
+  const isMobile = window.innerWidth < 640;
+  const paddingX = isMobile ? 16 : 32; // p-2 vs p-4 (8px vs 16px * 2)
+  const paddingY = isMobile ? 16 : 32; // p-2 vs p-4 (8px vs 16px * 2)
+  const bottomSpace = isMobile ? 24 : 48; // Smaller bottom space on mobile (mt-1 vs mt-3 + text height)
+  const innerWidth = Math.max(200, dimensions.width - paddingX); // Minimum 200px width
+  const innerHeight = Math.max(150, dimensions.height - paddingY - bottomSpace); // Minimum 150px height
   const center = useMemo(
     () => ({ x: innerWidth / 2, y: innerHeight / 2 }),
     [innerWidth, innerHeight],
@@ -277,12 +313,27 @@ export default function VoiceRipples({
       srcRef.current?.disconnect();
       cleanupAudio?.();
     };
-  }, [mode, audioEl, fftSize, smoothing, sensitivity, cooldownMs, maxRipples, micStarted, levelMv]);
+  }, [
+    mode,
+    audioEl,
+    fftSize,
+    smoothing,
+    sensitivity,
+    cooldownMs,
+    maxRipples,
+    micStarted,
+    levelMv,
+    dimensions,
+  ]);
 
   return (
-    <div className={`rounded-2xl ${surfaceBgClass} p-4`} style={{ width, height }}>
+    <div
+      ref={containerRef}
+      className={`rounded-2xl ${surfaceBgClass} p-2 sm:p-4 w-full h-full ${className}`}
+      style={width && height ? { width, height } : {}}
+    >
       <div
-        className="relative rounded-xl overflow-hidden"
+        className="relative rounded-xl overflow-hidden flex-1"
         style={{ width: innerWidth, height: innerHeight }}
       >
         {/* SVG water surface */}
@@ -352,7 +403,7 @@ export default function VoiceRipples({
         />
       </div>
 
-      <div className="flex items-center justify-between text-xs text-zinc-400 mt-3">
+      <div className="flex items-center justify-between text-xs text-zinc-400 mt-1 sm:mt-3">
         <span>
           {ready ? (mode === 'mic' ? 'Mic live' : 'Audio element') : 'Initializing audio...'}
         </span>

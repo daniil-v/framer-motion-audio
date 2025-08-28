@@ -42,6 +42,7 @@ type EqualizerProps = {
   colorClass?: string;
   bgClass?: string;
   micStarted?: boolean; // For mic mode, indicates if user has clicked start
+  className?: string; // For responsive styling
 };
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
@@ -52,20 +53,50 @@ export default function Equalizer({
   bars = 32,
   fftSize = 1024,
   smoothing = 0.85,
-  height = 160,
-  width = 480,
+  height,
+  width,
   colorClass = 'bg-indigo-500',
   bgClass = 'bg-zinc-900',
   micStarted = false,
+  className = '',
 }: EqualizerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const rafRef = useRef<number | null>(null);
   const srcRef = useRef<MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null>(null);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   // Use state to track bar heights and avoid hook violations
-  const [barHeights, setBarHeights] = useState<number[]>(() => Array(bars).fill(8));
+  const [barHeights, setBarHeights] = useState<number[]>(() => Array(bars).fill(20));
+
+  // Update dimensions when container size changes
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const newWidth = width || Math.max(320, rect.width); // Minimum 320px width
+        // On mobile (small screens), use full available height, on desktop maintain aspect ratio
+        const isMobile = window.innerWidth < 640; // sm breakpoint
+        const newHeight =
+          height ||
+          Math.max(200, isMobile ? rect.height : Math.min(360, Math.max(200, rect.width * 0.5625)));
+        setDimensions({ width: newWidth, height: newHeight });
+      }
+    };
+
+    // Set initial dimensions immediately
+    setDimensions({
+      width: width || 320,
+      height: height || (window.innerWidth < 640 ? window.innerHeight * 0.8 : 200),
+    });
+
+    // Use setTimeout to ensure container is rendered before measuring
+    setTimeout(updateDimensions, 0);
+
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, [width, height]);
 
   // Compute index ranges to aggregate FFT bins into N bars (log-scale-ish)
   const binMap = useMemo(() => {
@@ -89,13 +120,15 @@ export default function Equalizer({
   useEffect(() => {
     // Early return if mode is disabled
     if (!isModeEnabled(mode)) {
-      setBarHeights(Array(bars).fill(8));
+      const minHeight = Math.max(20, dimensions.height * 0.15);
+      setBarHeights(Array(bars).fill(minHeight));
       return;
     }
 
     // For mic mode, wait until user has clicked start
     if (mode === 'mic' && !micStarted) {
-      setBarHeights(Array(bars).fill(8));
+      const minHeight = Math.max(20, dimensions.height * 0.15);
+      setBarHeights(Array(bars).fill(minHeight));
       return;
     }
 
@@ -158,7 +191,8 @@ export default function Equalizer({
           // Only analyze if audio context is running and (for element mode) audio is playing
           if (ctx.state !== 'running' || (mode === 'element' && audioEl && audioEl.paused)) {
             // Set bars to minimal height when not playing
-            setBarHeights(Array(bars).fill(8));
+            const minHeight = Math.max(20, containerHeight * 0.15);
+            setBarHeights(Array(bars).fill(minHeight));
             rafRef.current = requestAnimationFrame(loop);
             return;
           }
@@ -168,7 +202,7 @@ export default function Equalizer({
           // Array to store new heights for this frame
           const newHeights: number[] = [];
 
-          // Aggregate bins into bars
+          // Aggregate bins into bars with stable height normalization
           for (let i = 0; i < bars; i++) {
             const { start, end } = binMap[i];
             let sum = 0;
@@ -179,7 +213,14 @@ export default function Equalizer({
             }
             const avg = count ? sum / count : 0;
             const norm = avg / 255; // 0..1
-            const barPx = Math.max(8, norm * height); // minimum 8px height
+
+            // Apply logarithmic scaling and compression for more stable heights
+            const compressed = Math.pow(norm, 0.6); // Compress dynamic range
+            const minHeight = containerHeight * 0.15; // Minimum 15% of container height
+            const maxHeight = containerHeight * 0.85; // Maximum 85% of container height
+            const heightRange = maxHeight - minHeight;
+            const barPx = minHeight + compressed * heightRange;
+
             // Store the values to update state
             newHeights[i] = barPx;
           }
@@ -203,11 +244,13 @@ export default function Equalizer({
       };
 
       const handlePause = () => {
-        setBarHeights(Array(bars).fill(8));
+        const minHeight = Math.max(20, dimensions.height * 0.15);
+        setBarHeights(Array(bars).fill(minHeight));
       };
 
       const handleEnded = () => {
-        setBarHeights(Array(bars).fill(8));
+        const minHeight = Math.max(20, dimensions.height * 0.15);
+        setBarHeights(Array(bars).fill(minHeight));
       };
 
       audioEl.addEventListener('play', handlePlay);
@@ -232,45 +275,40 @@ export default function Equalizer({
       analyserRef.current?.disconnect();
       cleanupAudio?.();
     };
-  }, [mode, audioEl, bars, fftSize, smoothing, height, binMap, micStarted]);
+  }, [mode, audioEl, bars, fftSize, smoothing, dimensions.height, binMap, micStarted]);
 
   const gap = 4; // px gap between bars
-  const containerWidth = width - 32; // Account for padding
-  const containerHeight = height - 64; // Account for padding + bottom info text
-  const barWidth = Math.floor((containerWidth - gap * (bars - 1)) / bars);
+  const isMobile = window.innerWidth < 640;
+  const paddingY = isMobile ? 16 : 32; // p-2 vs p-4 (8px vs 16px * 2)
+  const bottomSpace = isMobile ? 24 : 48; // Smaller bottom space on mobile
+  const containerHeight = Math.max(150, dimensions.height - paddingY - bottomSpace); // Minimum 150px height
+  // Use flex-1 for bars to fill available space, no fixed width calculation needed
 
   const isDisabled = !isModeEnabled(mode);
 
   return (
     <div
-      className={`flex flex-col items-center ${bgClass} rounded-2xl p-4 ${
+      ref={containerRef}
+      className={`flex flex-col items-center ${bgClass} rounded-2xl p-2 sm:p-4 w-full h-full ${
         isDisabled ? 'opacity-50' : ''
-      }`}
-      style={{ width, height }}
+      } ${className}`}
+      style={width && height ? { width, height } : {}}
     >
-      <div
-        className="flex items-end"
-        style={{ width: containerWidth, height: containerHeight, gap }}
-        ref={containerRef}
-      >
+      <div className="flex items-end w-full" style={{ height: containerHeight, gap }}>
         {barHeights.map((h, i) => (
           <motion.div
             key={i}
-            className={`${colorClass} rounded-t-xl ${isDisabled ? 'bg-zinc-600' : ''}`}
+            className={`${colorClass} rounded-t-xl flex-1 ${isDisabled ? 'bg-zinc-600' : ''}`}
             style={{
-              width: barWidth,
               transformOrigin: 'bottom',
             }}
             animate={{ height: h }}
-            initial={{ height: 8 }}
+            initial={{ height: Math.max(20, containerHeight * 0.15) }}
             transition={{ type: 'spring', stiffness: 200, damping: 20 }}
           />
         ))}
       </div>
-      <div
-        className="flex items-center justify-between text-xs text-zinc-400 mt-3"
-        style={{ width: containerWidth }}
-      >
+      <div className="flex items-center justify-between text-xs text-zinc-400 mt-1 sm:mt-3 w-full">
         <span>
           {isDisabled
             ? `${mode === 'mic' ? 'Mic' : 'Audio element'} (disabled)`
