@@ -42,32 +42,32 @@ const THEMES: Record<ThemeName, { color: string; bgClass: string; ringWidth: num
   cyan: {
     color: 'rgba(56,189,248,0.9)',
     bgClass: 'bg-gradient-to-b from-slate-900 to-black',
-    ringWidth: 2,
+    ringWidth: 5,
   },
   azure: {
     color: 'rgba(59,130,246,0.9)',
     bgClass: 'bg-gradient-to-b from-slate-900 to-indigo-950',
-    ringWidth: 2,
+    ringWidth: 5,
   },
   violet: {
     color: 'rgba(168,85,247,0.9)',
     bgClass: 'bg-gradient-to-b from-slate-900 to-violet-950',
-    ringWidth: 2,
+    ringWidth: 5,
   },
   emerald: {
     color: 'rgba(16,185,129,0.9)',
     bgClass: 'bg-gradient-to-b from-slate-900 to-emerald-950',
-    ringWidth: 2,
+    ringWidth: 5,
   },
   amber: {
     color: 'rgba(245,158,11,0.9)',
     bgClass: 'bg-gradient-to-b from-slate-900 to-amber-950',
-    ringWidth: 2,
+    ringWidth: 5,
   },
   rose: {
     color: 'rgba(244,63,94,0.9)',
     bgClass: 'bg-gradient-to-b from-slate-900 to-rose-950',
-    ringWidth: 2,
+    ringWidth: 5,
   },
   mono: {
     color: 'rgba(226,232,240,0.85)',
@@ -107,15 +107,15 @@ export default function VoiceRipples({
     () => ({ x: innerWidth / 2, y: innerHeight / 2 }),
     [innerWidth, innerHeight],
   );
-  const maxR = Math.min(innerWidth, innerHeight) * 0.5 * 0.95; // slightly inside the edge
+  const maxR = Math.max(innerWidth, innerHeight) * 0.5 * 0.95; // slightly inside the edge
 
   // Audio level 0..1 in MotionValue, smooth with spring for UI
   const levelMv = useMotionValue(0);
   const level = useSpring(levelMv, { stiffness: 200, damping: 30, mass: 0.5 });
 
   // Transform motion values for animations
-  const centralRadius = useTransform(level, (v: number) => 12 + v * maxR * 0.25);
-  const centralOpacity = useTransform(level, (v: number) => 0.25 + v * 0.35);
+  const centralRadius = useTransform(level, (v: number) => 18 + v * maxR * 0.45);
+  const centralOpacity = useTransform(level, (v: number) => 0.15 + v * 0.5);
 
   // Ripples (keys) for AnimatePresence
   const [ripples, setRipples] = useState<Array<{ id: number }>>([]);

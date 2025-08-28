@@ -113,11 +113,12 @@ export default function App() {
                 <VoiceRipples
                   mode={mode}
                   audioEl={mode === 'element' ? audioRef.current : null}
-                  theme="violet"
+                  color="rgba(99,102,241,0.9)"
+                  bgClass="bg-black"
                   width={640}
                   height={360}
-                  sensitivity={0.05}
-                  rippleDuration={2.1}
+                  sensitivity={0.02}
+                  rippleDuration={3.5}
                   micStarted={mode === 'mic' ? micStarted : undefined}
                 />
               )}
